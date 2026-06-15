@@ -1,0 +1,23 @@
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Exportaciones
+exports/
+
+# Backups
+data/backups/
+
+# Simulaciones
+data/simulaciones/
+
+# Entornos virtuales
+venv/
+.venv/
+
+# VS Code
+.vscode/
