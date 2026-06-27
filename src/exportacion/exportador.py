@@ -13,37 +13,51 @@ import os
 import logging
 from datetime import datetime
 
-import matplotlib
 # backend configurado por la interfaz principal
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Polygon as MplPolygon
-from matplotlib.collections import PatchCollection
 
 logger = logging.getLogger("nesting.exportador")
 
-DIR_EXPORTS    = os.path.join(os.path.dirname(__file__), "..", "..", "exports")
-DIR_SIMULACIONES = os.path.join(os.path.dirname(__file__), "..", "..", "data", "simulaciones")
+# MEJORA 3: rutas resueltas en tiempo de ejecución, no en importación
+def _get_dirs() -> tuple[str, str]:
+    base = os.path.dirname(__file__)
+    return (
+        os.path.join(base, "..", "..", "exports"),
+        os.path.join(base, "..", "..", "data", "simulaciones"),
+    )
+
+# MEJORA 7: constante extraída para fácil ajuste
+MAX_LEYENDA = 12
+
+COLORES = [
+    "#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6",
+    "#1abc9c", "#e67e22", "#34495e", "#16a085", "#c0392b",
+    "#8e44ad", "#27ae60", "#d35400", "#2980b9", "#7f8c8d",
+]
 
 
 def _ts() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def _asegurar_dirs():
-    os.makedirs(DIR_EXPORTS, exist_ok=True)
-    os.makedirs(DIR_SIMULACIONES, exist_ok=True)
+def _asegurar_dirs() -> tuple[str, str]:
+    dir_exports, dir_sims = _get_dirs()  # MEJORA 3
+    os.makedirs(dir_exports, exist_ok=True)
+    os.makedirs(dir_sims, exist_ok=True)
+    return dir_exports, dir_sims
 
 
 # ─────────────────────────────────────────────────────────────────
 #  GUARDAR SIMULACIÓN (persistencia interna)
 # ─────────────────────────────────────────────────────────────────
-def guardar_simulacion(resultado: dict, nombre_sim: str = "") -> tuple[bool, str]:
+def guardar_simulacion(resultado: dict, nombre_sim: str = "") -> tuple[bool, str]:  # MEJORA 4
     """Guarda la simulación completa en data/simulaciones/ para consulta posterior."""
-    _asegurar_dirs()
+    _, dir_sims = _asegurar_dirs()
     ts = _ts()
     nombre_archivo = f"{nombre_sim or 'sim'}_{ts}.json"
-    ruta = os.path.join(DIR_SIMULACIONES, nombre_archivo)
+    ruta = os.path.join(dir_sims, nombre_archivo)
     try:
         resultado["timestamp"] = ts
         with open(ruta, "w", encoding="utf-8") as f:
@@ -57,11 +71,11 @@ def guardar_simulacion(resultado: dict, nombre_sim: str = "") -> tuple[bool, str
 
 def listar_simulaciones() -> list[dict]:
     """Lista simulaciones guardadas con sus métricas básicas."""
-    _asegurar_dirs()
+    _, dir_sims = _asegurar_dirs()
     sims = []
-    for archivo in sorted(os.listdir(DIR_SIMULACIONES), reverse=True):
+    for archivo in sorted(os.listdir(dir_sims), reverse=True):
         if archivo.endswith(".json"):
-            ruta = os.path.join(DIR_SIMULACIONES, archivo)
+            ruta = os.path.join(dir_sims, archivo)
             try:
                 with open(ruta, encoding="utf-8") as f:
                     datos = json.load(f)
@@ -71,19 +85,19 @@ def listar_simulaciones() -> list[dict]:
                     "metricas": datos.get("metricas", {}),
                     "parametros": datos.get("parametros", {}),
                 })
-            except Exception:
-                pass
+            except Exception as exc:  # MEJORA 2: ya no silencioso
+                logger.warning("Archivo de simulación dañado o ilegible '%s': %s", archivo, exc)
     return sims
 
 
 # ─────────────────────────────────────────────────────────────────
 #  EXPORTAR JSON
 # ─────────────────────────────────────────────────────────────────
-def exportar_json(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
+def exportar_json(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:  # MEJORA 4
     """Exporta el resultado completo de la simulación en JSON."""
-    _asegurar_dirs()
+    dir_exports, _ = _asegurar_dirs()
     if not ruta_destino:
-        ruta_destino = os.path.join(DIR_EXPORTS, f"nesting_{_ts()}.json")
+        ruta_destino = os.path.join(dir_exports, f"nesting_{_ts()}.json")
     try:
         with open(ruta_destino, "w", encoding="utf-8") as f:
             json.dump(resultado, f, ensure_ascii=False, indent=2)
@@ -97,11 +111,11 @@ def exportar_json(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
 # ─────────────────────────────────────────────────────────────────
 #  EXPORTAR CSV
 # ─────────────────────────────────────────────────────────────────
-def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
+def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:  # MEJORA 4
     """Exporta la lista de piezas colocadas en CSV."""
-    _asegurar_dirs()
+    dir_exports, _ = _asegurar_dirs()
     if not ruta_destino:
-        ruta_destino = os.path.join(DIR_EXPORTS, f"nesting_{_ts()}.csv")
+        ruta_destino = os.path.join(dir_exports, f"nesting_{_ts()}.csv")
 
     colocadas = resultado.get("colocadas", [])
     metricas  = resultado.get("metricas", {})
@@ -110,12 +124,10 @@ def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
     try:
         with open(ruta_destino, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            # Encabezado de parámetros
             writer.writerow(["=== PARÁMETROS DE TELA ==="])
             writer.writerow(["Ancho (cm)", params.get("ancho_tela", ""), "Largo (cm)", params.get("largo_tela", "")])
             writer.writerow(["Margen (cm)", params.get("margen", ""), "Paso rotación (°)", params.get("angulo_paso", "")])
             writer.writerow([])
-            # Métricas
             writer.writerow(["=== MÉTRICAS ==="])
             writer.writerow(["Área tela (cm²)", metricas.get("area_tela_cm2", "")])
             writer.writerow(["Área utilizada (cm²)", metricas.get("area_usada_cm2", "")])
@@ -124,7 +136,6 @@ def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
             writer.writerow(["Piezas colocadas", metricas.get("piezas_colocadas", "")])
             writer.writerow(["Piezas totales", metricas.get("piezas_totales", "")])
             writer.writerow([])
-            # Detalle piezas
             writer.writerow(["=== DETALLE DE PIEZAS COLOCADAS ==="])
             writer.writerow(["Nombre", "Offset X (cm)", "Offset Y (cm)", "Ángulo (°)", "Área (cm²)"])
             for p in colocadas:
@@ -135,7 +146,6 @@ def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
                     p.get("angulo", ""),
                     p.get("area_cm2", ""),
                 ])
-            # No colocadas
             no_col = resultado.get("no_colocadas", [])
             if no_col:
                 writer.writerow([])
@@ -153,24 +163,16 @@ def exportar_csv(resultado: dict, ruta_destino: str = "") -> tuple[bool, str]:
 # ─────────────────────────────────────────────────────────────────
 #  EXPORTAR IMAGEN PNG
 # ─────────────────────────────────────────────────────────────────
-COLORES = [
-    "#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6",
-    "#1abc9c", "#e67e22", "#34495e", "#16a085", "#c0392b",
-    "#8e44ad", "#27ae60", "#d35400", "#2980b9", "#7f8c8d",
-]
-
-
 def exportar_imagen(resultado: dict, ruta_destino: str = "",
-                    titulo: str = "Distribución Optimizada de Piezas Textiles") -> tuple[bool, str]:
+                    titulo: str = "Distribución Optimizada de Piezas Textiles") -> tuple[bool, str]:  # MEJORA 4
     """
     Genera y guarda una imagen PNG de la distribución de piezas sobre la tela.
     Incluye leyenda, métricas y título del proyecto.
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    _asegurar_dirs()
+    # MEJORA 1: se eliminó matplotlib.use("Agg") de aquí; lo controla la interfaz principal
+    dir_exports, _ = _asegurar_dirs()
     if not ruta_destino:
-        ruta_destino = os.path.join(DIR_EXPORTS, f"nesting_{_ts()}.png")
+        ruta_destino = os.path.join(dir_exports, f"nesting_{_ts()}.png")
 
     params    = resultado.get("parametros", {})
     metricas  = resultado.get("metricas", {})
@@ -179,72 +181,70 @@ def exportar_imagen(resultado: dict, ruta_destino: str = "",
     ancho = params.get("ancho_tela", 150)
     largo = params.get("largo_tela", 300)
 
-    fig, ax = plt.subplots(figsize=(10, max(6, largo / ancho * 7)))
-    ax.set_xlim(0, ancho)
-    ax.set_ylim(0, largo)
-    ax.set_aspect("equal")
-    ax.set_facecolor("#f5f5dc")   # color tela (beige)
+    fig = None  # MEJORA 5: evita NameError en el except si subplots falla
+    try:
+        fig, ax = plt.subplots(figsize=(10, max(6, largo / ancho * 7)))
+        ax.set_xlim(0, ancho)
+        ax.set_ylim(0, largo)
+        ax.set_aspect("equal")
+        ax.set_facecolor("#f5f5dc")
 
-    # Dibuja la superficie de tela
-    tela_rect = plt.Rectangle((0, 0), ancho, largo, linewidth=2,
-                               edgecolor="#555555", facecolor="#f5f5dc", zorder=0)
-    ax.add_patch(tela_rect)
+        tela_rect = plt.Rectangle((0, 0), ancho, largo, linewidth=2,
+                                   edgecolor="#555555", facecolor="#f5f5dc", zorder=0)
+        ax.add_patch(tela_rect)
 
-    # Dibuja cada pieza
-    leyenda_handles = []
-    for i, pieza in enumerate(colocadas):
-        coords = pieza.get("coordenadas", [])
-        if len(coords) < 3:
-            continue
-        color = COLORES[i % len(COLORES)]
-        pts = [(x, y) for x, y in coords]
-        patch = MplPolygon(pts, closed=True, facecolor=color, edgecolor="white",
-                           linewidth=0.8, alpha=0.80, zorder=2)
-        ax.add_patch(patch)
+        leyenda_handles = []
+        for i, pieza in enumerate(colocadas):
+            coords = pieza.get("coordenadas", [])
+            if len(coords) < 3:
+                continue
+            color = COLORES[i % len(COLORES)]
+            pts = [(x, y) for x, y in coords]
+            patch = MplPolygon(pts, closed=True, facecolor=color, edgecolor="white",
+                               linewidth=0.8, alpha=0.80, zorder=2)
+            ax.add_patch(patch)
 
-        # Texto centroide
-        cx = sum(p[0] for p in pts) / len(pts)
-        cy = sum(p[1] for p in pts) / len(pts)
-        nombre_corto = pieza["nombre"][:10]
-        ax.text(cx, cy, nombre_corto, ha="center", va="center",
-                fontsize=5.5, color="white", fontweight="bold", zorder=3)
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            # MEJORA 6: indicador visual de truncado
+            nombre_raw = pieza["nombre"]
+            nombre_corto = nombre_raw[:10] + ("…" if len(nombre_raw) > 10 else "")
+            ax.text(cx, cy, nombre_corto, ha="center", va="center",
+                    fontsize=5.5, color="white", fontweight="bold", zorder=3)
 
-        leyenda_handles.append(
-            mpatches.Patch(color=color, label=f"{pieza['nombre']} ({pieza['area_cm2']:.1f} cm²)")
+            leyenda_handles.append(
+                mpatches.Patch(color=color, label=f"{pieza['nombre']} ({pieza['area_cm2']:.1f} cm²)")
+            )
+
+        if leyenda_handles:
+            ax.legend(handles=leyenda_handles[:MAX_LEYENDA], loc="upper right",  # MEJORA 7
+                      fontsize=6, framealpha=0.85, title="Piezas")
+
+        ax.set_xlabel("Ancho de tela (cm)", fontsize=9)
+        ax.set_ylabel("Largo de tela (cm)", fontsize=9)
+
+        pct  = metricas.get("porcentaje_uso", 0)
+        n_ok = metricas.get("piezas_colocadas", 0)
+        n_tt = metricas.get("piezas_totales", 0)
+        fig.suptitle(titulo, fontsize=11, fontweight="bold", y=0.98)
+        ax.set_title(
+            f"Aprovechamiento: {pct:.1f}%  |  Piezas: {n_ok}/{n_tt}  |  "
+            f"Tela: {ancho}×{largo} cm  |  Residuo: {metricas.get('area_residual_cm2', 0):.1f} cm²",
+            fontsize=8, color="#333333"
         )
 
-    # Leyenda (máx. 12 elementos para no saturar)
-    if leyenda_handles:
-        ax.legend(handles=leyenda_handles[:12], loc="upper right",
-                  fontsize=6, framealpha=0.85, title="Piezas")
+        ax.grid(True, which="both", linestyle="--", linewidth=0.3, color="#aaaaaa", alpha=0.5, zorder=1)
+        ax.set_xticks(range(0, int(ancho) + 1, max(1, int(ancho // 10))))
+        ax.set_yticks(range(0, int(largo) + 1, max(1, int(largo // 10))))
 
-    # Etiquetas de ejes
-    ax.set_xlabel("Ancho de tela (cm)", fontsize=9)
-    ax.set_ylabel("Largo de tela (cm)", fontsize=9)
-
-    # Título y subtítulo con métricas
-    pct  = metricas.get("porcentaje_uso", 0)
-    n_ok = metricas.get("piezas_colocadas", 0)
-    n_tt = metricas.get("piezas_totales", 0)
-    fig.suptitle(titulo, fontsize=11, fontweight="bold", y=0.98)
-    ax.set_title(
-        f"Aprovechamiento: {pct:.1f}%  |  Piezas: {n_ok}/{n_tt}  |  "
-        f"Tela: {ancho}×{largo} cm  |  Residuo: {metricas.get('area_residual_cm2', 0):.1f} cm²",
-        fontsize=8, color="#333333"
-    )
-
-    # Grilla ligera
-    ax.grid(True, which="both", linestyle="--", linewidth=0.3, color="#aaaaaa", alpha=0.5, zorder=1)
-    ax.set_xticks(range(0, int(ancho) + 1, max(1, int(ancho // 10))))
-    ax.set_yticks(range(0, int(largo) + 1, max(1, int(largo // 10))))
-
-    try:
         plt.tight_layout()
         plt.savefig(ruta_destino, dpi=150, bbox_inches="tight")
         plt.close(fig)
         logger.info("Imagen exportada: %s", ruta_destino)
         return True, ruta_destino
+
     except Exception as exc:
-        plt.close(fig)
+        if fig is not None:  # MEJORA 5
+            plt.close(fig)
         logger.error("Error exportando imagen: %s", exc)
         return False, str(exc)
