@@ -181,7 +181,8 @@ def exportar_imagen(resultado: dict, ruta_destino: str = "",
     ancho = params.get("ancho_tela", 150)
     largo = params.get("largo_tela", 300)
 
-    fig = None  # MEJORA 5: evita NameError en el except si subplots falla
+    fig = None  
+    # MEJORA 5: evita NameError en el except si subplots falla
     try:
         fig, ax = plt.subplots(figsize=(10, max(6, largo / ancho * 7)))
         ax.set_xlim(0, ancho)
